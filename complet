@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+# complete_extract.py - Tout en un
+
+import re
+import zlib
+import marshal
+import sys
+import os
+
+print("🔄 EXTRACTION COMPLÈTE DU CODE")
+print("=" * 50)
+
+# 1. LIRE task.py
+with open('task.py', 'r', encoding='utf-8', errors='ignore') as f:
+    content = f.read()
+
+print("📦 Extraction des variables...")
+
+# 2. TROUVER payload_data COMPLÈTE (méthode robuste)
+payload_match = None
+salt_match = None
+
+# Chercher payload_data (peut être sur plusieurs lignes)
+lines = content.split('\n')
+current_line = ''
+for line in lines:
+    if 'payload_data' in line:
+        current_line = line
+        # Si la ligne se termine par ... continuer
+        while current_line.count("'") % 2 == 1:  # Quotes non fermées
+            # Chercher la suite
+            idx = lines.index(line) + 1
+            if idx < len(lines):
+                current_line += lines[idx]
+                line = lines[idx]
+            else:
+                break
+        payload_match = current_line
+        break
+
+# Extraire la valeur hex
+if payload_match:
+    import re
+    hex_match = re.search(r"'([a-f0-9]+)'", payload_match)
+    if hex_match:
+        payload_hex = hex_match.group(1)
+        print(f"✅ Payload: {len(payload_hex)//2} bytes")
+    else:
+        print("❌ Format payload incorrect")
+        exit(1)
+else:
+    print("❌ payload_data non trouvée")
+    exit(1)
+
+# 3. TROUVER config_salt
+salt_match = re.search(r"config_salt\s*=\s*'([a-f0-9]+)'", content)
+if salt_match:
+    salt_hex = salt_match.group(1)
+    print(f"✅ Salt: {len(salt_hex)//2} bytes")
+else:
+    print("❌ config_salt non trouvée")
+    exit(1)
+
+# 4. DÉCHIFFRER
+print("\n🔓 Déchiffrement...")
+salt = bytes.fromhex(salt_hex)
+payload = bytes.fromhex(payload_hex)
+
+# XOR
+decrypted = bytearray()
+for i, byte in enumerate(payload):
+    decrypted.append(byte ^ salt[i % len(salt)])
+
+# Zlib + Marshal
+try:
+    decompressed = zlib.decompress(bytes(decrypted))
+    code_obj = marshal.loads(decompressed)
+    print(f"✅ Avec zlib: {len(decompressed)} bytes")
+except zlib.error:
+    code_obj = marshal.loads(bytes(decrypted))
+    print(f"✅ Sans zlib: {len(decrypted)} bytes")
+
+print("🎯 Code objet chargé")
+
+# 5. DÉCOMPILER
+print("\n🔧 Décompilation...")
+
+source_code = None
+method_used = ""
+
+# Essayer decompyle3 d'abord
+try:
+    from decompyle3 import decompile
+    import io
+    
+    print("  Méthode: decompyle3...")
+    output = io.StringIO()
+    
+    # Essayer différentes versions Python
+    for version in [(3, 11), (3, 10), (3, 9), (3, 8), (3, 7)]:
+        try:
+            output = io.StringIO()
+            decompile(version, code_obj, out=output)
+            source_code = output.getvalue()
+            method_used = f"decompyle3 Python {version[0]}.{version[1]}"
+            print(f"  ✅ Réussi avec Python {version[0]}.{version[1]}")
+            break
+        except:
+            continue
+    
+except ImportError as e:
+    print(f"  ❌ decompyle3: {e}")
+
+# Si decompyle3 échoue, essayer uncompyle6
+if not source_code:
+    try:
+        import uncompyle6
+        import io
+        
+        print("  Méthode: uncompyle6...")
+        output = io.StringIO()
+        uncompyle6.deparse_code2str(code_obj, output)
+        source_code = output.getvalue()
+        method_used = "uncompyle6"
+        print("  ✅ Réussi")
+        
+    except ImportError as e:
+        print(f"  ❌ uncompyle6: {e}")
+
+# Si toujours rien, utiliser le bytecode
+if not source_code:
+    print("  ❌ Décompilateurs échoués, utilisation bytecode")
+    import dis
+    import io
+    
+    output = io.StringIO()
+    dis.dis(code_obj, file=output)
+    source_code = f"# BYTECODE SEULEMENT\n# Installez: pip install decompyle3 uncompyle6\n'''\n{output.getvalue()}\n'''"
+    method_used = "bytecode"
+
+# 6. SAUVEGARDER
+output_file = "task_MODIFIABLE.py"
+print(f"\n💾 Sauvegarde: {output_file}")
+
+with open(output_file, 'w', encoding='utf-8') as f:
+    f.write("#!/usr/bin/env python3\n")
+    f.write('"""\n')
+    f.write('CODE MODIFIABLE - DÉCHIFFRÉ\n')
+    f.write(f'Original: task.py (obfusqué)\n')
+    f.write(f'Méthode: {method_used}\n')
+    f.write(f'Déchiffré le: {__import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+    f.write('"""\n\n')
+    
+    # Ajouter les variables originales pour référence
+    f.write("# Variables originales du fichier chiffré:\n")
+    f.write(f"# config_salt = '{salt_hex}'\n")
+    f.write(f"# payload_data = '{payload_hex[:100]}...'  # {len(payload_hex)//2} bytes\n")
+    f.write("\n" + "="*60 + "\n")
+    f.write("# CODE DÉCHIFFRÉ ET MODIFIABLE\n")
+    f.write("="*60 + "\n\n")
+    
+    f.write(source_code)
+
+# Compter les lignes
+with open(output_file, 'r') as f:
+    lines = f.readlines()
+    line_count = len(lines)
+
+print(f"✅ Fichier créé: {output_file}")
+print(f"📄 {line_count} lignes, {os.path.getsize(output_file)} bytes")
+
+# 7. VÉRIFIER
+print("\n🔍 Vérification...")
+try:
+    # Compiler pour vérifier la syntaxe
+    with open(output_file, 'r') as f:
+        test_code = f.read()
+    compile(test_code, output_file, 'exec')
+    print("✅ Syntaxe Python valide")
+    
+    # Aperçu
+    print("\n👁️  APERÇU (premières 30 lignes):")
+    print("-" * 40)
+    for i in range(min(30, line_count)):
+        print(f"{i+1:3}: {lines[i].rstrip()}")
+        
+except SyntaxError as e:
+    print(f"⚠️  Problème syntaxique: {e}")
+    print("Le fichier est peut-être en bytecode seulement")
+    
+    # Afficher le début différemment
+    print("\n📋 Début du fichier:")
+    with open(output_file, 'r') as f:
+        for i in range(10):
+            line = f.readline()
+            print(line.rstrip())
+
+# 8. CRÉER UN SCRIPT POUR EXÉCUTER
+runner_script = f'''#!/usr/bin/env python3
+# run_{output_file} - Exécute le code déchiffré
+
+import sys
+import os
+
+print("🚀 EXÉCUTION DU CODE DÉCHIFFRÉ")
+print("=" * 50)
+
+# Vérifier les dépendances
+try:
+    import colorama
+    from colorama import Fore, Style
+    colorama.init(autoreset=True)
+    print("✅ colorama importé")
+except ImportError:
+    print("⚠️  colorama non installé: pip install colorama")
+    # Créer des fausses constantes
+    class FakeFore:
+        RED = GREEN = YELLOW = BLUE = MAGENTA = CYAN = WHITE = RESET = ''
+    class FakeStyle:
+        RESET_ALL = ''
+    Fore = FakeFore()
+    Style = FakeStyle()
+
+try:
+    import requests
+    print("✅ requests importé")
+except ImportError:
+    print("⚠️  requests non installé: pip install requests")
+
+try:
+    import asyncio
+    print("✅ asyncio importé")
+except ImportError:
+    print("⚠️  asyncio non disponible")
+
+print("\\n🎮 Exécution de {output_file}...")
+print("-" * 50)
+
+# Exécuter
+try:
+    with open('{output_file}', 'r') as f:
+        code = f.read()
+    exec(code)
+except Exception as e:
+    print(f"❌ Erreur: {{e}}")
+    import traceback
+    traceback.print_exc()
+'''
+
+with open(f'run_{output_file}', 'w') as f:
+    f.write(runner_script)
+
+os.chmod(f'run_{output_file}', 0o755)
+print(f"\n🎯 Script d'exécution: run_{output_file}")
+
+print(f"\n{'='*50}")
+print("🎉 EXTRACTION TERMINÉE !")
+print(f"{'='*50}")
+print(f"📁 Fichier modifiable: {output_file}")
+print(f"🚀 Pour exécuter: python {output_file}")
+print(f"   ou: ./run_{output_file}")
+print(f"✏️  Pour éditer: nano {output_file}")

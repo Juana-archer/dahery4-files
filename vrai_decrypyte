@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""
+Déchiffreur simple pour task.py
+"""
+
+import re
+import zlib
+import marshal
+import sys
+
+# Lire le fichier
+with open('task.py', 'r', encoding='utf-8', errors='ignore') as f:
+    content = f.read()
+
+# Chercher la payload hex
+hex_match = re.search(r"'([a-f0-9]{500,})'", content)
+if hex_match:
+    print("✅ Payload hex trouvée")
+    hex_data = hex_match.group(1)
+    
+    try:
+        # Convertir hex -> bytes
+        encrypted_bytes = bytes.fromhex(hex_data)
+        print(f"📦 Taille payload: {len(encrypted_bytes)} bytes")
+        
+        # Décompresser avec zlib
+        decompressed = zlib.decompress(encrypted_bytes)
+        print(f"📦 Taille décompressée: {len(decompressed)} bytes")
+        
+        # Charger l'objet marshal
+        code_obj = marshal.loads(decompressed)
+        print(f"✅ Objet code chargé")
+        
+        # Essayer de décompiler
+        try:
+            import uncompyle6
+            print("🔧 Décompilation avec uncompyle6...")
+            
+            # Décompiler en mémoire
+            import io
+            output = io.StringIO()
+            uncompyle6.deparse_code2str(code_obj, output)
+            source_code = output.getvalue()
+            
+            # Sauvegarder
+            with open('task_decrypted_real.py', 'w', encoding='utf-8') as f:
+                # Écrire les variables originales
+                f.write("# Variables originales:\n")
+                for line in content.split('\n'):
+                    if '=' in line and len(line) < 100:
+                        f.write(line + '\n')
+                
+                f.write("\n" + "="*60 + "\n")
+                f.write("# CODE DÉCHIFFRÉ:\n")
+                f.write("="*60 + "\n\n")
+                f.write(source_code)
+            
+            print("✅ Fichier sauvegardé: task_decrypted_real.py")
+            print(f"📄 Taille: {len(source_code)} caractères")
+            
+            # Afficher un aperçu
+            print("\n📋 Aperçu du code déchiffré:")
+            print("-" * 40)
+            lines = source_code.split('\n')
+            for i in range(min(30, len(lines))):
+                print(lines[i])
+            
+            if len(lines) > 30:
+                print("...")
+            
+        except ImportError:
+            print("⚠️ uncompyle6 non installé. Installation:")
+            print("pip install uncompyle6")
+            
+            # Sauvegarder le bytecode
+            import dis
+            with open('task_bytecode.txt', 'w') as f:
+                dis.dis(code_obj, file=f)
+            print("✅ Bytecode sauvegardé: task_bytecode.txt")
+            
+            # Sauvegarder l'objet marshal
+            with open('task_codeobj.bin', 'wb') as f:
+                marshal.dump(code_obj, f)
+            print("✅ Objet code sauvegardé: task_codeobj.bin")
+        
+        # Exécuter le code déchiffré
+        print("\n🎮 Exécuter le code déchiffré? (o/n)")
+        if input().strip().lower() == 'o':
+            print("\n🚀 EXÉCUTION...")
+            print("=" * 40)
+            exec(code_obj)
+        
+    except Exception as e:
+        print(f"❌ Erreur: {e}")
+        import traceback
+        traceback.print_exc()
+
+else:
+    print("❌ Aucune payload hex trouvée")
+    
+    # Chercher autre chose
+    print("\n🔍 Recherche d'autres patterns...")
+    
+    # Chercher marshal loads
+    if "marshal" in content and "loads" in content:
+        print("✅ marshal.loads détecté")
+        
+        # Extraire les variables
+        print("\n📊 Variables détectées:")
+        lines = content.split('\n')
+        for line in lines:
+            if '=' in line and not line.strip().startswith('#'):
+                if len(line) > 150:
+                    print(f"[LONG] {line[:80]}...")
+                else:
+                    print(line)

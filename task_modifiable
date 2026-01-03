@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+# get_modifiable_code.py - Obtient le VRAI code source modifiable
+
+import re
+import zlib
+import marshal
+import sys
+import os
+import subprocess
+
+def get_clean_source():
+    """Déchiffre et retourne le code source PROPRE"""
+    
+    print("🔓 DÉCHIFFREMENT POUR MODIFICATION")
+    print("=" * 50)
+    
+    # 1. Lire l'original
+    with open('task.py', 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+    
+    # 2. Extraire payload et salt
+    payload_match = re.search(r"payload_data\s*=\s*'([a-f0-9]+)'", content)
+    salt_match = re.search(r"config_salt\s*=\s*'([a-f0-9]+)'", content)
+    
+    if not payload_match or not salt_match:
+        print("❌ Variables non trouvées")
+        return None
+    
+    payload_hex = payload_match.group(1)
+    salt_hex = salt_match.group(1)
+    
+    print(f"✅ Payload: {len(payload_hex)//2} bytes")
+    print(f"✅ Salt: {len(salt_hex)//2} bytes")
+    
+    # 3. Déchiffrement
+    salt = bytes.fromhex(salt_hex)
+    payload = bytes.fromhex(payload_hex)
+    
+    # XOR
+    decrypted = bytearray()
+    for i, byte in enumerate(payload):
+        decrypted.append(byte ^ salt[i % len(salt)])
+    
+    # Zlib + Marshal
+    try:
+        decompressed = zlib.decompress(bytes(decrypted))
+        code_obj = marshal.loads(decompressed)
+    except:
+        code_obj = marshal.loads(bytes(decrypted))
+    
+    print("✅ Code objet déchiffré")
+    
+    # 4. DÉCOMPILER en source propre
+    print("\n🔧 Décompilation en source Python...")
+    
+    # Essayer decompyle3
+    try:
+        import decompyle3
+        import io
+        
+        output = io.StringIO()
+        from decompyle3 import decompile
+        
+        try:
+            decompile(sys.version_info[:2], code_obj, out=output)
+            source_code = output.getvalue()
+            print("✅ Décompilation réussie avec decompyle3")
+        except Exception as e:
+            print(f"❌ decompyle3 échoué: {e}")
+            raise
+    
+    except ImportError:
+        print("❌ decompyle3 non installé")
+        print("Installation: pip install decompyle3")
+        
+        # Sauvegarder l'objet pour décompilation externe
+        with open('temp_codeobj.bin', 'wb') as f:
+            marshal.dump(code_obj, f)
+        
+        print("✅ Objet sauvegardé: temp_codeobj.bin")
+        print("Décompilez avec: python -m decompyle3 temp_codeobj.bin")
+        return None
+    
+    # 5. NETTOYER le code source
+    print("\n🧹 Nettoyage du code source...")
+    
+    # Corriger les problèmes courants
+    clean_source = source_code
+    
+    # Remplacer les imports problématiques
+    clean_source = clean_source.replace("from colorama import *", 
+                                       "from colorama import Fore, Style, Back, init")
+    
+    # Ajouter un shebang
+    if not clean_source.startswith('#!/'):
+        clean_source = "#!/usr/bin/env python3\n" + clean_source
+    
+    # Ajouter un en-tête
+    header = f'''"""
+Code déchiffré et modifiable
+Original: task.py (obfusqué)
+Déchiffré le: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Python: {sys.version}
+"""
+
+'''
+    clean_source = header + clean_source
+    
+    return clean_source
+
+def save_modifiable_file(source_code, filename="task_modifiable.py"):
+    """Sauvegarde le code modifiable"""
+    
+    print(f"\n💾 Sauvegarde: {filename}")
+    
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(source_code)
+    
+    # Compter les lignes
+    line_count = len(source_code.split('\n'))
+    print(f"📄 {line_count} lignes de code")
+    
+    # Vérifier la syntaxe
+    print("✓ Vérification syntaxique...")
+    try:
+        compile(source_code, filename, 'exec')
+        print("✅ Syntaxe Python valide")
+    except SyntaxError as e:
+        print(f"⚠️  Problème syntaxique: {e}")
+        # Corriger automatiquement
+        source_code = fix_syntax_errors(source_code)
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(source_code)
+        print("✅ Corrigé automatiquement")
+    
+    return filename
+
+def fix_syntax_errors(source_code):
+    """Corrige les erreurs de syntaxe courantes"""
+    
+    corrections = [
+        # Problème: 'print' sans parenthèses (Python 2 vs 3)
+        (r'print\s+([^\n]+)(?=\n)', r'print(\1)'),
+        
+        # Problème: except Exception, e: → except Exception as e:
+        (r'except\s+([^,]+),\s*([^:]+):', r'except \1 as \2:'),
+        
+        # Problème: backticks (Python 2)
+        (r'`([^`]+)`', r'repr(\1)'),
+    ]
+    
+    for pattern, replacement in corrections:
+        source_code = re.sub(pattern, replacement, source_code)
+    
+    return source_code
+
+def create_editor_script(modifiable_file):
+    """Crée un script pour éditer facilement"""
+    
+    editor_script = f'''#!/usr/bin/env python3
+# edit_{modifiable_file}.py - Éditeur pour le code déchiffré
+
+import os
+import sys
+
+def main():
+    print("🛠️  ÉDITEUR POUR {modifiable_file}")
+    print("=" * 50)
+    
+    if not os.path.exists("{modifiable_file}"):
+        print(f"❌ {modifiable_file} non trouvé")
+        return
+    
+    print(f"📁 Fichier: {modifiable_file}")
+    print(f"📏 Taille: {os.path.getsize(modifiable_file)} bytes")
+    
+    print("\\n📋 Options:")
+    print("1. Voir le code")
+    print("2. Éditer avec nano")
+    print("3. Éditer avec vim")
+    print("4. Exécuter le code")
+    print("5. Quitter")
+    
+    choice = input("\\nChoix (1-5): ").strip()
+    
+    if choice == '1':
+        # Afficher les 100 premières lignes
+        os.system(f"head -100 {modifiable_file}")
+        
+    elif choice == '2':
+        os.system(f"nano {modifiable_file}")
+        
+    elif choice == '3':
+        os.system(f"vim {modifiable_file}")
+        
+    elif choice == '4':
+        print("\\n🚀 Exécution...")
+        os.system(f"python {modifiable_file}")
+        
+    elif choice == '5':
+        print("👋 Au revoir!")
+        
+    else:
+        print("❌ Choix invalide")
+
+if __name__ == "__main__":
+    main()
+'''
+    
+    script_name = f"edit_{modifiable_file.replace('.py', '')}.py"
+    with open(script_name, 'w') as f:
+        f.write(editor_script)
+    
+    os.chmod(script_name, 0o755)
+    print(f"✅ Script d'édition: {script_name}")
+    
+    return script_name
+
+def main():
+    """Fonction principale"""
+    
+    print("🛠️  CRÉATION DE CODE MODIFIABLE")
+    print("=" * 50)
+    
+    # 1. Obtenir le code source propre
+    source_code = get_clean_source()
+    if not source_code:
+        print("\n❌ Impossible d'obtenir le code source")
+        return
+    
+    # 2. Sauvegarder
+    modifiable_file = save_modifiable_file(source_code, "task_clean.py")
+    
+    # 3. Créer un script d'édition
+    editor_script = create_editor_script(modifiable_file)
+    
+    # 4. Afficher les instructions
+    print(f"\n🎉 CODE MODIFIABLE PRÊT !")
+    print("=" * 50)
+    print(f"📁 Fichier principal: {modifiable_file}")
+    print(f"🛠️  Script d'édition: {editor_script}")
+    
+    print(f"\n📋 COMMANDES UTILES:")
+    print(f"  # Éditer le code")
+    print(f"  nano {modifiable_file}")
+    print(f"  python {editor_script}")
+    
+    print(f"\n  # Voir la structure")
+    print(f"  grep -n 'def \\|class \\|import ' {modifiable_file}")
+    
+    print(f"\n  # Compter les lignes")
+    print(f"  wc -l {modifiable_file}")
+    
+    print(f"\n  # Exécuter")
+    print(f"  python {modifiable_file}")
+    
+    # 5. Montrer un aperçu
+    print(f"\n👁️  APERÇU DU CODE:")
+    print("-" * 40)
+    with open(modifiable_file, 'r') as f:
+        for i in range(20):
+            line = f.readline()
+            if not line:
+                break
+            print(f"{i+1:3}: {line.rstrip()}")
+    print("...")
+
+if __name__ == "__main__":
+    main()

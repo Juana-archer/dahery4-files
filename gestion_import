@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+# run_decrypted.py - Exécute le code déchiffré avec gestion d'imports
+
+import marshal
+import sys
+import subprocess
+
+def install_missing_packages():
+    """Installe les packages manquants automatiquement"""
+    
+    packages = ['colorama', 'requests', 'telethon', 'asyncio']
+    
+    print("🔧 Installation des dépendances...")
+    
+    for package in packages:
+        try:
+            __import__(package)
+            print(f"✅ {package} déjà installé")
+        except ImportError:
+            print(f"📦 Installation de {package}...")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+                print(f"✅ {package} installé")
+            except Exception as e:
+                print(f"⚠️  Échec installation {package}: {e}")
+
+def patch_code_execution():
+    """Exécute le code avec patch pour les imports"""
+    
+    print("\n🔓 CHARGEMENT DU CODE DÉCHIFFRÉ")
+    print("=" * 50)
+    
+    # 1. Charger l'objet code
+    try:
+        with open('code_object.bin', 'rb') as f:
+            code_obj = marshal.load(f)
+        print("✅ Code objet chargé")
+    except FileNotFoundError:
+        print("❌ code_object.bin non trouvé")
+        print("   Exécutez d'abord: python real_decrypt.py")
+        return None
+    
+    # 2. Créer un environnement d'exécution avec imports simulés
+    import builtins
+    
+    # Sauvegarder l'exec original
+    original_exec = builtins.exec
+    
+    def patched_exec(code, globals=None, locals=None):
+        """Patch exec pour gérer NameError"""
+        if globals is None:
+            globals = {}
+        
+        # Ajouter des imports courants
+        try:
+            import colorama
+            from colorama import Fore, Style, Back, init as colorama_init
+            globals['Fore'] = Fore
+            globals['Style'] = Style
+            globals['Back'] = Back
+            globals['colorama_init'] = colorama_init
+            colorama_init(autoreset=True)
+        except ImportError:
+            pass
+        
+        try:
+            import requests
+            globals['requests'] = requests
+        except ImportError:
+            pass
+        
+        try:
+            import asyncio
+            globals['asyncio'] = asyncio
+        except ImportError:
+            pass
+        
+        # Exécuter avec gestion d'erreurs
+        try:
+            return original_exec(code, globals, locals)
+        except NameError as e:
+            error_msg = str(e)
+            print(f"\n⚠️  Erreur: {error_msg}")
+            
+            # Essayer de deviner le module manquant
+            if "'Fore'" in error_msg or "'Style'" in error_msg:
+                print("   Solution: pip install colorama")
+                install_missing_packages()
+                # Réessayer avec colorama
+                try:
+                    import colorama
+                    from colorama import Fore, Style
+                    colorama.init(autoreset=True)
+                    globals['Fore'] = Fore
+                    globals['Style'] = Style
+                    return original_exec(code, globals, locals)
+                except:
+                    pass
+            
+            elif "'requests'" in error_msg:
+                print("   Solution: pip install requests")
+                install_missing_packages()
+            
+            elif "'Client'" in error_msg or "'TelegramClient'" in error_msg:
+                print("   Solution: pip install telethon")
+                install_missing_packages()
+            
+            raise
+    
+    # Remplacer exec
+    builtins.exec = patched_exec
+    
+    return code_obj
+
+def run_decrypted_code():
+    """Exécute le code déchiffré"""
+    
+    # Installer dépendances
+    install_missing_packages()
+    
+    # Préparer l'exécution
+    code_obj = patch_code_execution()
+    if not code_obj:
+        return
+    
+    print("\n" + "="*50)
+    print("🚀 EXÉCUTION DU CODE")
+    print("="*50)
+    
+    try:
+        # Créer un bon environnement global
+        import_dict = {}
+        
+        # Importer les modules courants
+        try:
+            import colorama
+            from colorama import Fore, Style, init
+            init(autoreset=True)
+            import_dict['Fore'] = Fore
+            import_dict['Style'] = Style
+            import_dict['colorama'] = colorama
+            print("✅ colorama importé")
+        except ImportError:
+            # Créer des faux Fore, Style si colorama pas disponible
+            class FakeFore:
+                RED = '\033[91m'
+                GREEN = '\033[92m'
+                YELLOW = '\033[93m'
+                BLUE = '\033[94m'
+                MAGENTA = '\033[95m'
+                CYAN = '\033[96m'
+                WHITE = '\033[97m'
+                RESET = '\033[0m'
+            
+            class FakeStyle:
+                RESET_ALL = '\033[0m'
+            
+            import_dict['Fore'] = FakeFore
+            import_dict['Style'] = FakeStyle
+            print("⚠️  colorama non trouvé, utilisation couleurs basiques")
+        
+        try:
+            import requests
+            import_dict['requests'] = requests
+            print("✅ requests importé")
+        except ImportError:
+            print("⚠️  requests non installé")
+        
+        try:
+            import asyncio
+            import_dict['asyncio'] = asyncio
+            print("✅ asyncio importé")
+        except ImportError:
+            print("⚠️  asyncio non disponible")
+        
+        try:
+            import os
+            import sys
+            import time
+            import json
+            import re
+            import_dict['os'] = os
+            import_dict['sys'] = sys
+            import_dict['time'] = time
+            import_dict['json'] = json
+            import_dict['re'] = re
+        except:
+            pass
+        
+        # Exécuter le code
+        exec(code_obj, import_dict)
+        
+    except Exception as e:
+        print(f"\n❌ Erreur d'exécution: {e}")
+        
+        # Analyse de l'erreur
+        if "NameError" in str(type(e)):
+            print("\n🔍 ANALYSE DE L'ERREUR:")
+            error_msg = str(e)
+            
+            if "Fore" in error_msg:
+                print("   • Manque: colorama.Fore")
+                print("   • Solution: pip install colorama")
+            
+            if "requests" in error_msg:
+                print("   • Manque: requests")
+                print("   • Solution: pip install requests")
+            
+            if "TelegramClient" in error_msg or "telethon" in error_msg:
+                print("   • Manque: telethon")
+                print("   • Solution: pip install telethon")
+        
+        import traceback
+        traceback.print_exc()
+        
+        # Demander installation
+        print("\n📦 Installer les dépendances manquantes? (o/n)")
+        if input().strip().lower() == 'o':
+            install_missing_packages()
+            print("\n🔄 Réessayer l'exécution? (o/n)")
+            if input().strip().lower() == 'o':
+                run_decrypted_code()
+
+def main():
+    """Fonction principale"""
+    
+    print("🎮 EXÉCUTEUR DE CODE DÉCHIFFRÉ")
+    print("=" * 50)
+    
+    # Vérifier fichiers
+    if not all(os.path.exists(f) for f in ['code_object.bin', 'task.py']):
+        print("❌ Fichiers manquants")
+        print("   Exécutez d'abord: python real_decrypt.py")
+        return
+    
+    # Exécuter
+    run_decrypted_code()
+
+if __name__ == "__main__":
+    import os
+    main()
