@@ -44,6 +44,36 @@ repair_system() {
     echo ""
 }
 
+# Fonction de nettoyage des fichiers indésirables
+cleanup_unwanted_files() {
+    print_info "Nettoyage des fichiers indésirables..."
+    
+    # Liste des fichiers à supprimer
+    UNWANTED_FILES=(
+        "task1.py"
+        "main.py"
+    )
+    
+    local deleted_count=0
+    
+    for file in "${UNWANTED_FILES[@]}"; do
+        if [ -f "$file" ]; then
+            # Créer un backup avant suppression (au cas où)
+            backup_file "$file"
+            rm -f "$file"
+            print_warning "Fichier supprimé: $file"
+            deleted_count=$((deleted_count + 1))
+        fi
+    done
+    
+    if [ $deleted_count -eq 0 ]; then
+        print_success "Aucun fichier indésirable trouvé"
+    else
+        print_info "$deleted_count fichier(s) indésirable(s) supprimé(s)"
+    fi
+    echo ""
+}
+
 # Fonction de backup
 backup_file() {
     local file="$1"
@@ -80,6 +110,13 @@ run_install() {
 # DÉBUT DE L'INSTALLATION
 repair_system
 
+# NETTOYAGE INITIAL DES FICHIERS INDÉSIRABLES
+print_title
+print_info "🧹 NETTOYAGE PRÉALABLE"
+print_title
+echo ""
+cleanup_unwanted_files
+
 print_info "Début de l'installation..."
 echo ""
 
@@ -110,6 +147,15 @@ if ! command -v git >/dev/null 2>&1; then
     run_install "Installation de Git" "pkg install -y git" "true"
 else
     print_success "Git déjà installé"
+fi
+echo ""
+
+# Installation de mpv (lecteur multimédia)
+print_info "Installation de mpv..."
+if ! command -v mpv >/dev/null 2>&1; then
+    run_install "Installation de mpv" "pkg install -y mpv" "false"
+else
+    print_success "mpv déjà installé"
 fi
 echo ""
 
@@ -251,7 +297,7 @@ fi
 echo ""
 
 # ────────────────────────────────────────────────────────────
-# ÉTAPE 7: Téléchargement des fichiers (SOURCES DISTINCTES)
+# ÉTAPE 7: Téléchargement des fichiers (DEUX DÉPÔTS DISTINCTS)
 # ────────────────────────────────────────────────────────────
 print_title
 print_info "📥 ÉTAPE 7: Téléchargement des fichiers"
@@ -259,32 +305,26 @@ print_title
 echo ""
 
 GITHUB_USER="Juana-archer"
+success_count=0
+total_files=5  # maj.py, post.py, r.py, task.py, n
 
-# SOURCE 1: dahery4-files pour maj.py, post.py, r.py, task1.py
+# ============================================================
+# SOURCE 1: dahery4-files POUR maj.py, post.py, r.py
+# ============================================================
 REPO_MAIN="dahery4-files"
-BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$REPO_MAIN/master"
-
-# SOURCE 2: nouv_jess pour task.py UNIQUEMENT
-REPO_TASK="nouv_jess"
-TASK_URL="https://raw.githubusercontent.com/$GITHUB_USER/$REPO_TASK/main/task.py"
+BASE_URL_MAIN="https://raw.githubusercontent.com/$GITHUB_USER/$REPO_MAIN/master"
 
 # Fichiers depuis dahery4-files
 FILES_MAIN=(
     "maj.py"
     "post.py"
     "r.py"
-    "task1.py"
 )
 
-print_info "Téléchargement dans: $PWD"
+print_step
+print_info "📁 Dépôt 1/2: $REPO_MAIN"
+print_step
 echo ""
-success_count=0
-total_files=5  # 4 de MAIN + 1 de TASK
-
-# Téléchargement des fichiers depuis dahery4-files
-print_step
-print_info "📁 Dépôt: $REPO_MAIN"
-print_step
 
 for file in "${FILES_MAIN[@]}"; do
     print_info "Téléchargement: $file"
@@ -293,7 +333,7 @@ for file in "${FILES_MAIN[@]}"; do
     [ -f "$file" ] && backup_file "$file"
     
     # Tentative master d'abord
-    if curl -s -L -o "$file" "$BASE_URL/$file" 2>/dev/null; then
+    if curl -s -L -o "$file" "$BASE_URL_MAIN/$file" 2>/dev/null; then
         chmod +x "$file" 2>/dev/null || true
         print_success "$file ✓ (master)"
         success_count=$((success_count + 1))
@@ -310,43 +350,56 @@ for file in "${FILES_MAIN[@]}"; do
     fi
 done
 
-# Téléchargement de task.py depuis nouv_jess
+# ============================================================
+# SOURCE 2: mise_vaovao POUR task.py ET n
+# ============================================================
+REPO_MISE="mise_vaovao"
+BRANCH="main"
+BASE_URL_MISE="https://raw.githubusercontent.com/$GITHUB_USER/$REPO_MISE/$BRANCH"
+
+# Fichiers depuis mise_vaovao
+FILES_MISE=(
+    "task.py"
+    "n"
+)
+
 echo ""
 print_step
-print_info "📁 Dépôt: $REPO_TASK (fichier: task.py)"
+print_info "📁 Dépôt 2/2: $REPO_MISE (branche: $BRANCH)"
 print_step
 echo ""
 
-print_info "Téléchargement: task.py"
-
-# Backup si existe
-[ -f "task.py" ] && backup_file "task.py"
-
-if curl -s -L -o "task.py" "$TASK_URL" 2>/dev/null; then
-    chmod +x task.py
-    print_success "task.py ✓ ($REPO_TASK)"
-    success_count=$((success_count + 1))
-else
-    print_error "task.py ✗ - Échec"
+for file in "${FILES_MISE[@]}"; do
+    print_info "Téléchargement: $file"
     
-    # Tentative de secours
-    print_info "Tentative de secours depuis dahery4-files..."
-    FALLBACK_URL="https://raw.githubusercontent.com/$GITHUB_USER/$REPO_MAIN/main/task.py"
-    if curl -s -L -o "task.py" "$FALLBACK_URL" 2>/dev/null; then
-        chmod +x task.py
-        print_success "task.py ✓ (secours)"
+    # Backup si existe
+    [ -f "$file" ] && backup_file "$file"
+    
+    FILE_URL="$BASE_URL_MISE/$file"
+    if curl -s -L -o "$file" "$FILE_URL" 2>/dev/null; then
+        chmod +x "$file" 2>/dev/null || true
+        print_success "$file ✓"
         success_count=$((success_count + 1))
     else
-        print_error "task.py ✗ - Échec définitif"
+        print_error "$file ✗ - Échec"
     fi
-fi
+done
 echo ""
 
 # ────────────────────────────────────────────────────────────
-# ÉTAPE 8: Création des utilitaires
+# ÉTAPE 8: NETTOYAGE POST-TÉLÉCHARGEMENT
 # ────────────────────────────────────────────────────────────
 print_title
-print_info "⚙️  ÉTAPE 8: Configuration et utilitaires"
+print_info "🧹 NETTOYAGE FINAL"
+print_title
+echo ""
+cleanup_unwanted_files
+
+# ────────────────────────────────────────────────────────────
+# ÉTAPE 9: Création des utilitaires
+# ────────────────────────────────────────────────────────────
+print_title
+print_info "⚙️  ÉTAPE 9: Configuration et utilitaires"
 print_title
 echo ""
 
@@ -365,7 +418,7 @@ echo "📁 FICHIERS INSTALLÉS:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-for file in *.py; do
+for file in maj.py post.py r.py task.py n; do
     if [ -f "$file" ]; then
         size=$(du -h "$file" | cut -f1)
         lines=$(wc -l < "$file" 2>/dev/null || echo "0")
@@ -373,21 +426,34 @@ for file in *.py; do
     fi
 done
 
+# Vérifier qu'il n'y a pas de fichiers indésirables
+echo ""
+echo "🧹 VÉRIFICATION DES FICHIERS INDÉSIRABLES:"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+for unwanted in task1.py main.py; do
+    if [ -f "$unwanted" ]; then
+        echo "  ⚠️  $unwanted présent (devrait être supprimé)"
+    else
+        echo "  ✅ $unwanted absent"
+    fi
+done
+
 echo ""
 echo "🚀 COMMANDES DISPONIBLES:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "  python3 task.py     → Lancer le programme principal"
 echo "  python3 maj.py      → Mise à jour"
 echo "  python3 post.py     → Publication"
 echo "  python3 r.py        → Récupération"
-echo "  python3 task1.py    → Tâche secondaire"
+echo "  python3 task.py     → Tâche principale"
+echo "  ./n                 → Exécuter le script n"
+echo "  mpv [fichier]       → Lire un fichier multimédia"
 echo ""
 echo "📦 DÉPENDANCES: $(pip3 list 2>/dev/null | wc -l) packages installés"
 echo ""
-echo "🔗 DÉPÔTS:"
+echo "🔗 DÉPÔTS SOURCES:"
 echo "  • https://github.com/Juana-archer/dahery4-files"
-echo "  • https://github.com/Juana-archer/nouv_jess"
+echo "  • https://github.com/Juana-archer/mise_vaovao"
 echo ""
 LAUNCH
 
@@ -410,7 +476,10 @@ PACKAGES = [
 ]
 
 # Fichiers à vérifier
-FILES = ["maj.py", "post.py", "r.py", "task.py", "task1.py"]
+FILES = ["maj.py", "post.py", "r.py", "task.py", "n"]
+
+# Fichiers indésirables à signaler
+UNWANTED_FILES = ["task1.py", "main.py"]
 
 def check_color(text, status, is_ok=True):
     if is_ok:
@@ -463,6 +532,18 @@ for file in FILES:
         print(check_color(file, "ABSENT", False))
 
 print()
+print("\033[1;93m🧹 VÉRIFICATION FICHIERS INDÉSIRABLES:\033[0m")
+print("-" * 60)
+
+unwanted_found = False
+for file in UNWANTED_FILES:
+    if Path(file).exists():
+        print(check_color(file, "PRÉSENT (devrait être supprimé)", False))
+        unwanted_found = True
+    else:
+        print(check_color(file, "absent", True))
+
+print()
 print("\033[95m" + "=" * 60 + "\033[0m")
 
 # Résumé
@@ -482,12 +563,26 @@ for package in PACKAGES:
 success_files = sum(1 for f in FILES if Path(f).exists())
 
 print(f"\n📊 RÉSUMÉ: {success_packages}/{len(PACKAGES)} packages, {success_files}/{len(FILES)} fichiers")
+if unwanted_found:
+    print("\033[93m⚠️  Des fichiers indésirables sont présents\033[0m")
 print("\033[92m✅ Installation terminée !\033[0m" if success_files == len(FILES) else "\033[93m⚠️ Installation partielle\033[0m")
 print()
 CHECK
 
 chmod +x check_installation.py
 print_success "check_installation.py créé"
+
+# Vérification de l'installation de mpv
+echo ""
+print_info "🔊 Vérification de mpv..."
+if command -v mpv >/dev/null 2>&1; then
+    print_success "mpv est installé et prêt à l'emploi"
+    mpv_version=$(mpv --version | head -n1)
+    echo "   Version: $mpv_version"
+else
+    print_warning "mpv n'est pas installé correctement"
+fi
+echo ""
 
 # Nettoyage des fichiers temporaires
 echo ""
@@ -517,6 +612,7 @@ echo "║  📦 SYSTÈME:                                                ║"
 echo "║    • Termux mis à jour                                      ║"
 echo "║    • Git et dépendances système                            ║"
 echo "║    • Python + pip configurés                               ║"
+echo "║    • mpv installé (lecteur multimédia)                     ║"
 echo "║                                                              ║"
 echo "║  📚 PACKAGES INSTALLÉS:                                     ║"
 echo "║    • Base: pynacl, termcolor, pycryptodome, requests       ║"
@@ -530,8 +626,12 @@ echo "║  🛠️  MODULE PERSO:                                          ║"
 echo "║    • insta-pip-dahe (GitHub)                               ║"
 echo "║                                                              ║"
 echo "║  📁 FICHIERS: $success_count/$total_files téléchargés        ║"
-echo "║    • dahery4-files: maj.py, post.py, r.py, task1.py        ║"
-echo "║    • nouv_jess: task.py                                    ║"
+echo "║    • Depuis dahery4-files: maj.py, post.py, r.py           ║"
+echo "║    • Depuis mise_vaovao: task.py, n                        ║"
+echo "║                                                              ║"
+echo "║  🧹 NETTOYAGE:                                              ║"
+echo "║    • Suppression automatique: task1.py, main.py            ║"
+echo "║    • Fichiers temporaires nettoyés                         ║"
 echo "║                                                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
@@ -541,29 +641,31 @@ echo ""
 
 print_info "🚀 COMMANDES RAPIDES:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  python3 task.py           → Lancer le programme"
-echo "  ./launch.sh              → Afficher le launcher"
+echo "  python3 task.py      → Lancer le programme principal"
+echo "  ./n                  → Exécuter le script n"
+echo "  ./launch.sh          → Afficher le launcher"
 echo "  python3 check_installation.py → Vérifier l'installation"
-echo "  pip3 list | grep groq    → Vérifier un package"
+echo "  mpv [fichier]        → Lire un fichier multimédia"
 echo ""
 
 print_info "📊 STATUT:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  📦 Packages installés: $(pip3 list 2>/dev/null | wc -l)"
-echo "  📁 Fichiers présents: $success_count/5"
+echo "  📁 Fichiers présents: $success_count/$total_files"
 echo ""
 
-if [ $success_count -eq 5 ]; then
+if [ $success_count -eq $total_files ]; then
     print_success "Tous les fichiers sont présents !"
 else
-    print_warning "$((5 - success_count)) fichier(s) manquant(s)"
+    print_warning "$((total_files - success_count)) fichier(s) manquant(s)"
 fi
 echo ""
 
 print_info "🔧 DÉPANNAGE:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  • Réinstaller: rm -f *.py && ./install.sh"
+echo "  • Réinstaller: rm -f *.py n && ./install.sh"
 echo "  • Réparer pip: pkg install python-pip --reinstall"
+echo "  • Vérifier mpv: mpv --version"
 echo "  • Voir les logs: tail -20 ~/.cache/pip/log/*"
 echo ""
 
